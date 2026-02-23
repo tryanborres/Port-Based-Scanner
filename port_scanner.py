@@ -5,7 +5,8 @@ from colorama import init, Fore, Style
 
 init() # Initialize colorama - required for colors to work on Windows
 
-open_ports = [] # This list will store the open ports we find
+# This will store results for all targets, not just one
+all_results = {}
 lock = threading.Lock() # A lock to prevent multiple threads from writing to the open_ports list at the same time
 
 def get_service(port):
@@ -18,7 +19,8 @@ def get_service(port):
         return "Unknown"
 
 # Checks if a single port is open on the target host
-def scan_port(host, port):
+def scan_port(host, port, open_ports):
+    # open_ports is now passed in so each target has its own list
     try:
         sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         sock.settimeout(1)
@@ -26,73 +28,91 @@ def scan_port(host, port):
         sock.close()
 
         if result == 0:
-            # Look up the service name when we find an open port
             service = get_service(port)
-            with lock: # Use the lock to safely add the open port to our list without conflicts between threads
-                open_ports.append((port, service))  # store port and service together as a pair
-                print(f"{Fore.GREEN}Port {port}: OPEN  -->  {service.upper()}{Style.RESET_ALL}")
+            with lock:
+                open_ports.append((port, service))
+                print(f"{Fore.GREEN}[{host}] Port {port}: OPEN  -->  {service.upper()}{Style.RESET_ALL}")
         else:
-            print(f"{Fore.RED}Port {port}: CLOSED{Style.RESET_ALL}")
+            print(f"{Fore.RED}[{host}] Port {port}: CLOSED{Style.RESET_ALL}")
 
     except socket.error:
-        pass # Skips port that errors out
+        pass
 
-def save_results(host, start_port, end_port):
-    # Get the current date and time to timestamp the scan
-    timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-    
-    # Create a filename based on the target and time so each scan has a unique file
-    filename = f"scan_{host}_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.txt"
-    
-    # Open the file and write the results to it
-    # 'w' means write mode — creates the file if it doesn't exist
-    with open(filename, "w") as f:
-        f.write(f"Port Scan Results\n")
-        f.write(f"=================\n")
-        f.write(f"Target:     {host}\n")
-        f.write(f"Port Range: {start_port} - {end_port}\n")
-        f.write(f"Scanned At: {timestamp}\n")
-        f.write(f"=================\n\n")
-        
-        if open_ports:
-            for port, service in sorted(open_ports):  # unpack each port/service pair
-                f.write(f"Port {port}: OPEN  -->  {service.upper()}\n")
-        else:
-            f.write("No open ports found.\n")
-    
-    print(f"\n{Fore.YELLOW}Results saved to {filename}{Style.RESET_ALL}")
-
-# Loops through a range of ports and scans each one
 def scan(host, start_port, end_port):
-    print(f"Scanning {host} from port {start_port} to {end_port}...\n")
+    # Each target gets its own open_ports list
+    open_ports = []
+    print(f"\n{Fore.CYAN}Scanning {host} from port {start_port} to {end_port}...{Style.RESET_ALL}\n")
 
-    threads = [] # This list keeps track of all our threads
+    threads = []
 
     for port in range(start_port, end_port + 1):
-        thread = threading.Thread(target=scan_port, args=(host, port))
-        threads.append(thread) 
-        thread.start()  
+        thread = threading.Thread(target=scan_port, args=(host, port, open_ports))
+        threads.append(thread)
+        thread.start()
 
-    for thread in threads: 
+    for thread in threads:
         thread.join()
 
-    print(f"\n{Fore.CYAN}Scan complete!{Style.RESET_ALL}")
+    # Store this target's results in the all_results dictionary
+    all_results[host] = open_ports
+
+    print(f"\n{Fore.CYAN}Finished scanning {host}!{Style.RESET_ALL}")
     print(f"\n{'Port':<10} {'Service'}")
     print(f"{'-'*20}")
 
-    # Print a clean table of results sorted by port number
     for port, service in sorted(open_ports):
         print(f"{Fore.GREEN}{port:<10} {service.upper()}{Style.RESET_ALL}")
 
-     # Ask the user if they want to save the results
-    save = input("\nSave results to file? (y/n): ")
-    if save.lower() == "y":
-        save_results(host, start_port, end_port)
+def save_results(start_port, end_port):
+    timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    filename = f"scan_results_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.txt"
+
+    with open(filename, "w") as f:
+        f.write(f"Port Scan Results\n")
+        f.write(f"=================\n")
+        f.write(f"Scanned At:  {timestamp}\n")
+        f.write(f"Port Range:  {start_port} - {end_port}\n")
+        f.write(f"=================\n\n")
+
+        # Loop through each target and write its results
+        for host, open_ports in all_results.items():
+            f.write(f"\nTarget: {host}\n")
+            f.write(f"{'-'*20}\n")
+            if open_ports:
+                for port, service in sorted(open_ports):
+                    f.write(f"Port {port}: OPEN  -->  {service.upper()}\n")
+            else:
+                f.write("No open ports found.\n")
+
+    print(f"\n{Fore.YELLOW}Results saved to {filename}{Style.RESET_ALL}")
+
+def load_targets(filename):
+    # Open the targets file and read each line as a target
+    # strip() removes any extra whitespace or newlines from each line
+    try:
+        with open(filename, "r") as f:
+            targets = [line.strip() for line in f if line.strip()]
+        return targets
+    except FileNotFoundError:
+        print(f"{Fore.RED}Error: {filename} not found!{Style.RESET_ALL}")
+        return []
 
 # Main program starts here ---
 # Ask the user to type in the target (IP address or hostname like "localhost")
-target = input("Enter the target IP or hostname: ")
-start = int(input("Enter the start port: "))
-end = int(input("Enter the end port: "))
+targets = load_targets("targets.txt")
 
-scan(target, start, end)
+if not targets:
+    print("No targets found. Please add IPs to targets.txt")
+else:
+    print(f"{Fore.CYAN}Loaded {len(targets)} target(s): {', '.join(targets)}{Style.RESET_ALL}")
+
+    start = int(input("Enter start port: "))
+    end = int(input("Enter end port: "))
+
+    # Loop through each target and scan it one by one
+    for target in targets:
+        scan(target, start, end)
+
+    save = input("\nSave results to file? (y/n): ")
+    if save.lower() == "y":
+        save_results(start, end)
