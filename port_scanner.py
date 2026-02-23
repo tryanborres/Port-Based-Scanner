@@ -1,5 +1,6 @@
 import socket # socket is a built-in Python library that lets us make network connections
 import threading # allows us to run multiple scans at the same time for faster results
+import datetime # used to print the time when the scan starts and ends
 
 open_ports = [] # This list will store the open ports we find
 
@@ -21,6 +22,31 @@ def scan_port(host, port):
     except socket.error:
         pass # Skips port that errors out
 
+def save_results(host, start_port, end_port):
+    # Get the current date and time to timestamp the scan
+    timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    
+    # Create a filename based on the target and time so each scan has a unique file
+    filename = f"scan_{host}_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.txt"
+    
+    # Open the file and write the results to it
+    # 'w' means write mode — creates the file if it doesn't exist
+    with open(filename, "w") as f:
+        f.write(f"Port Scan Results\n")
+        f.write(f"=================\n")
+        f.write(f"Target:     {host}\n")
+        f.write(f"Port Range: {start_port} - {end_port}\n")
+        f.write(f"Scanned At: {timestamp}\n")
+        f.write(f"=================\n\n")
+        
+        if open_ports:
+            for port in sorted(open_ports):
+                f.write(f"Port {port}: OPEN\n")
+        else:
+            f.write("No open ports found.\n")
+    
+    print(f"\nResults saved to {filename}")
+
 # Loops through a range of ports and scans each one
 def scan(host, start_port, end_port):
     print(f"Scanning {host} from port {start_port} to {end_port}...\n")
@@ -36,6 +62,11 @@ def scan(host, start_port, end_port):
         thread.join()
 
     print(f"\nScan complete. Open ports: {sorted(open_ports)}")
+
+     # Ask the user if they want to save the results
+    save = input("\nSave results to file? (y/n): ")
+    if save.lower() == "y":
+        save_results(host, start_port, end_port)
 
 # Main program starts here ---
 # Ask the user to type in the target (IP address or hostname like "localhost")
