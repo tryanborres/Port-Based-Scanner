@@ -1,9 +1,11 @@
 import socket # socket is a built-in Python library that lets us make network connections
 import threading # allows us to run multiple scans at the same time for faster results
 import datetime # used to print the time when the scan starts and ends
+from colorama import init, Fore, Style
+
+init() # Initialize colorama - required for colors to work on Windows
 
 open_ports = [] # This list will store the open ports we find
-
 lock = threading.Lock() # A lock to prevent multiple threads from writing to the open_ports list at the same time
 
 def get_service(port):
@@ -28,7 +30,9 @@ def scan_port(host, port):
             service = get_service(port)
             with lock: # Use the lock to safely add the open port to our list without conflicts between threads
                 open_ports.append((port, service))  # store port and service together as a pair
-                print(f"Port {port}: OPEN  -->  {service.upper()}")
+                print(f"{Fore.GREEN}Port {port}: OPEN  -->  {service.upper()}{Style.RESET_ALL}")
+        else:
+            print(f"{Fore.RED}Port {port}: CLOSED{Style.RESET_ALL}")
 
     except socket.error:
         pass # Skips port that errors out
@@ -56,7 +60,7 @@ def save_results(host, start_port, end_port):
         else:
             f.write("No open ports found.\n")
     
-    print(f"\nResults saved to {filename}")
+    print(f"\n{Fore.YELLOW}Results saved to {filename}{Style.RESET_ALL}")
 
 # Loops through a range of ports and scans each one
 def scan(host, start_port, end_port):
@@ -72,13 +76,13 @@ def scan(host, start_port, end_port):
     for thread in threads: 
         thread.join()
 
-    print(f"\nScan complete!")
+    print(f"\n{Fore.CYAN}Scan complete!{Style.RESET_ALL}")
     print(f"\n{'Port':<10} {'Service'}")
     print(f"{'-'*20}")
 
     # Print a clean table of results sorted by port number
     for port, service in sorted(open_ports):
-        print(f"{port:<10} {service.upper()}")
+        print(f"{Fore.GREEN}{port:<10} {service.upper()}{Style.RESET_ALL}")
 
      # Ask the user if they want to save the results
     save = input("\nSave results to file? (y/n): ")
