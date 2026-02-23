@@ -1,8 +1,0 @@
-Port Scan Results
-=================
-Target:     localhosty
-Port Range: 1 - 500
-Scanned At: 2026-02-23 11:36:49
-=================
-
-No open ports found.

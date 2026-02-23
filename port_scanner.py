@@ -3,6 +3,7 @@ import threading # allows us to run multiple scans at the same time for faster r
 import datetime # used to print the time when the scan starts and ends
 import subprocess
 import re
+import requests
 from colorama import init, Fore, Style
 
 init() # Initialize colorama - required for colors to work on Windows
@@ -19,6 +20,41 @@ def get_service(port):
         return service
     except:
         return "Unknown"
+    
+def lookup_cves(service):
+    # Query the NVD (National Vulnerability Database) API for known CVEs
+    # This is a free public API maintained by the US government
+    try:
+        # Build the API URL with the service name as the search keyword
+        url = f"https://services.nvd.nist.gov/rest/json/cves/2.0?keywordSearch={service}&resultsPerPage=3"
+        
+        # Send the request with a timeout so we don't hang forever
+        response = requests.get(url, timeout=10)
+        data = response.json()
+
+        cves = []
+
+        # Loop through the results and extract CVE ID and description
+        for item in data.get("vulnerabilities", []):
+            cve_id = item["cve"]["id"]
+            descriptions = item["cve"]["descriptions"]
+            
+            # Find the English description
+            description = next(
+                (d["value"] for d in descriptions if d["lang"] == "en"),
+                "No description available"
+            )
+
+            # Shorten the description to 100 characters so it fits nicely
+            short_desc = description[:500] + "..." if len(description) > 500 else description
+            cves.append(f"{cve_id}: {short_desc}")
+
+        return cves if cves else ["No known CVEs found"]
+
+    except requests.exceptions.Timeout:
+        return ["CVE lookup timed out"]
+    except Exception as e:
+        return [f"CVE lookup error: {str(e)}"]
     
 def fingerprint_os(host):
     # Resolve hostname to IP address first so ping works correctly
@@ -63,7 +99,6 @@ def fingerprint_os(host):
 
 # Checks if a single port is open on the target host
 def scan_port(host, port, open_ports):
-    # open_ports is now passed in so each target has its own list
     try:
         sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         sock.settimeout(1)
@@ -72,9 +107,16 @@ def scan_port(host, port, open_ports):
 
         if result == 0:
             service = get_service(port)
+
+            # Look up CVEs for this service
+            print(f"{Fore.YELLOW}[{host}] Looking up CVEs for {service.upper()}...{Style.RESET_ALL}")
+            cves = lookup_cves(service)
+
             with lock:
-                open_ports.append((port, service))
+                open_ports.append((port, service, cves))
                 print(f"{Fore.GREEN}[{host}] Port {port}: OPEN  -->  {service.upper()}{Style.RESET_ALL}")
+                for cve in cves:
+                    print(f"  {Fore.RED}CVE: {cve}{Style.RESET_ALL}")
         else:
             print(f"{Fore.RED}[{host}] Port {port}: CLOSED{Style.RESET_ALL}")
 
@@ -108,11 +150,13 @@ def scan(host, start_port, end_port):
     }
 
     print(f"\n{Fore.CYAN}Finished scanning {host}!{Style.RESET_ALL}")
-    print(f"\n{'Port':<10} {'Service'}")
-    print(f"{'-'*20}")
+    print(f"\n{'Port':<10} {'Service':<20} {'CVEs'}")
+    print(f"{'-'*60}")
 
-    for port, service in sorted(open_ports):
-        print(f"{Fore.GREEN}{port:<10} {service.upper()}{Style.RESET_ALL}")
+    for port, service, cves in sorted(open_ports):
+        print(f"{Fore.GREEN}{port:<10} {service.upper():<20}{Style.RESET_ALL}")
+        for cve in cves:
+            print(f"  {Fore.RED}{cve}{Style.RESET_ALL}")
 
 def save_results(start_port, end_port):
     timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
@@ -128,10 +172,12 @@ def save_results(start_port, end_port):
         for host, data in all_results.items():
             f.write(f"\nTarget: {host}\n")
             f.write(f"OS Guess: {data['os']}\n")
-            f.write(f"{'-'*20}\n")
+            f.write(f"{'-'*40}\n")
             if data["open_ports"]:
-                for port, service in sorted(data["open_ports"]):
+                for port, service, cves in sorted(data["open_ports"]):
                     f.write(f"Port {port}: OPEN  -->  {service.upper()}\n")
+                    for cve in cves:
+                        f.write(f"  CVE: {cve}\n")
             else:
                 f.write("No open ports found.\n")
 
@@ -160,7 +206,6 @@ else:
     start = int(input("Enter start port: "))
     end = int(input("Enter end port: "))
 
-    # Loop through each target and scan it one by one
     for target in targets:
         scan(target, start, end)
 

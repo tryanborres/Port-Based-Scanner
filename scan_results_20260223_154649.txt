@@ -1,0 +1,10 @@
+Port Scan Results
+=================
+Scanned At:  2026-02-23 15:46:49
+Port Range:  1 - 500
+=================
+
+
+Target: localhost
+OS Guess: Windows (TTL=128)
+--------------------
