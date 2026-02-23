@@ -1,6 +1,8 @@
 import socket # socket is a built-in Python library that lets us make network connections
 import threading # allows us to run multiple scans at the same time for faster results
 import datetime # used to print the time when the scan starts and ends
+import subprocess
+import re
 from colorama import init, Fore, Style
 
 init() # Initialize colorama - required for colors to work on Windows
@@ -17,6 +19,47 @@ def get_service(port):
         return service
     except:
         return "Unknown"
+    
+def fingerprint_os(host):
+    # Resolve hostname to IP address first so ping works correctly
+    try:
+        host = socket.gethostbyname(host)
+    except socket.gaierror:
+        return "Could not resolve host"
+    # Send a ping to the target and analyze the TTL value in the response
+    # Different OS's start with different TTL values which helps us identify them
+    try:
+        # Run a ping command and capture the output
+        # -n 1 means send just 1 ping packet
+        output = subprocess.check_output(
+            ["ping", "-n", "1", host],
+            stderr=subprocess.DEVNULL
+        ).decode()
+
+        # Use regex to find the TTL value in the ping response
+        ttl_match = re.search(r"TTL=(\d+)", output, re.IGNORECASE)
+
+        if ttl_match:
+            ttl = int(ttl_match.group(1))
+
+            # Match TTL value to known OS fingerprints
+            if ttl <= 64:
+                os_guess = "Linux / Unix"
+            elif ttl <= 128:
+                os_guess = "Windows"
+            elif ttl <= 255:
+                os_guess = "Cisco / Network Device"
+            else:
+                os_guess = "Unknown"
+
+            return f"{os_guess} (TTL={ttl})"
+        else:
+            return "Could not determine OS"
+
+    except subprocess.CalledProcessError:
+        return "Host unreachable"
+    except Exception as e:
+        return f"Error: {str(e)}"
 
 # Checks if a single port is open on the target host
 def scan_port(host, port, open_ports):
@@ -39,9 +82,14 @@ def scan_port(host, port, open_ports):
         pass
 
 def scan(host, start_port, end_port):
-    # Each target gets its own open_ports list
     open_ports = []
-    print(f"\n{Fore.CYAN}Scanning {host} from port {start_port} to {end_port}...{Style.RESET_ALL}\n")
+
+    # Run OS fingerprinting before scanning ports
+    print(f"\n{Fore.CYAN}Running OS fingerprint on {host}...{Style.RESET_ALL}")
+    os_guess = fingerprint_os(host)
+    print(f"{Fore.YELLOW}OS Guess: {os_guess}{Style.RESET_ALL}\n")
+
+    print(f"{Fore.CYAN}Scanning {host} from port {start_port} to {end_port}...{Style.RESET_ALL}\n")
 
     threads = []
 
@@ -53,8 +101,11 @@ def scan(host, start_port, end_port):
     for thread in threads:
         thread.join()
 
-    # Store this target's results in the all_results dictionary
-    all_results[host] = open_ports
+    # Store results including the OS guess
+    all_results[host] = {
+        "os": os_guess,
+        "open_ports": open_ports
+    }
 
     print(f"\n{Fore.CYAN}Finished scanning {host}!{Style.RESET_ALL}")
     print(f"\n{'Port':<10} {'Service'}")
@@ -74,12 +125,12 @@ def save_results(start_port, end_port):
         f.write(f"Port Range:  {start_port} - {end_port}\n")
         f.write(f"=================\n\n")
 
-        # Loop through each target and write its results
-        for host, open_ports in all_results.items():
+        for host, data in all_results.items():
             f.write(f"\nTarget: {host}\n")
+            f.write(f"OS Guess: {data['os']}\n")
             f.write(f"{'-'*20}\n")
-            if open_ports:
-                for port, service in sorted(open_ports):
+            if data["open_ports"]:
+                for port, service in sorted(data["open_ports"]):
                     f.write(f"Port {port}: OPEN  -->  {service.upper()}\n")
             else:
                 f.write("No open ports found.\n")
