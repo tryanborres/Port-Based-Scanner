@@ -1,3 +1,4 @@
+from enum import unique
 import socket # socket is a built-in Python library that lets us make network connections
 import threading # allows us to run multiple scans at the same time for faster results
 import datetime # used to print the time when the scan starts and ends
@@ -12,20 +13,21 @@ init() # Initialize colorama - required for colors to work on Windows
 all_results = {}
 lock = threading.Lock() # A lock to prevent multiple threads from writing to the open_ports list at the same time
 
+# Looks up the name of the service running on a given port. 
+# Uses Python's built in socket library to match port numbers to service names.
+# Returns 'Unknown' if the port is not recognized.
 def get_service(port):
-    # Try to find the service name for this port using Python's built in lookup
-    # If it can't find one it returns "Unknown"
     try:
         service = socket.getservbyport(port)
         return service
     except:
         return "Unknown"
-    
+
+#  Queries the NVD (National Vulnerability Database) API for known CVEs related to a service.
+#  Takes the service name as a search keyword and returns the top 3 matching CVEs.
+#  Returns a list of CVE IDs with short descriptions.
 def lookup_cves(service):
-    # Query the NVD (National Vulnerability Database) API for known CVEs
-    # This is a free public API maintained by the US government
     try:
-        # Build the API URL with the service name as the search keyword
         url = f"https://services.nvd.nist.gov/rest/json/cves/2.0?keywordSearch={service}&resultsPerPage=3"
         
         # Send the request with a timeout so we don't hang forever
@@ -55,7 +57,14 @@ def lookup_cves(service):
         return ["CVE lookup timed out"]
     except Exception as e:
         return [f"CVE lookup error: {str(e)}"]
-    
+
+# Attempts to identify the operating system of the target host using TTL analysis.
+# Sends a ping to the target and reads the TTL (Time To Live) value in the response.
+# Different operating systems use different default TTL values:
+# TTL 64  = Linux / Unix
+# TTL 128 = Windows
+# TTL 255 = Cisco / Network Device
+# Returns a string with the OS guess and TTL value.
 def fingerprint_os(host):
     # Resolve hostname to IP address first so ping works correctly
     try:
@@ -63,7 +72,6 @@ def fingerprint_os(host):
     except socket.gaierror:
         return "Could not resolve host"
     # Send a ping to the target and analyze the TTL value in the response
-    # Different OS's start with different TTL values which helps us identify them
     try:
         # Run a ping command and capture the output
         # -n 1 means send just 1 ping packet
@@ -97,7 +105,12 @@ def fingerprint_os(host):
     except Exception as e:
         return f"Error: {str(e)}"
 
-# Checks if a single port is open on the target host
+# Checks if a single port is open on the target host.
+# Creates a TCP socket and attempts to connect to the port.
+# If the connection succeeds the port is open and we look up its service and CVEs.
+# If the connection fails the port is closed.
+# Results are stored in the open_ports list which is shared across threads.
+# A lock is used to prevent multiple threads from writing to the list at the same time.
 def scan_port(host, port, open_ports):
     try:
         sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -123,6 +136,11 @@ def scan_port(host, port, open_ports):
     except socket.error:
         pass
 
+#  Main scanning function that coordinates the full scan of a single target.
+#  First runs OS fingerprinting to identify the target's operating system.
+#  Then creates a thread for each port in the range and scans them all simultaneously.
+#  Waits for all threads to finish before displaying and storing the results.
+#  Results are stored in the all_results dictionary for later saving to a file.
 def scan(host, start_port, end_port):
     open_ports = []
 
@@ -158,6 +176,9 @@ def scan(host, start_port, end_port):
         for cve in cves:
             print(f"  {Fore.RED}{cve}{Style.RESET_ALL}")
 
+# Saves all scan results to a timestamped text file.
+# Includes the target, OS guess, open ports, services, and CVEs for each host.
+# The filename includes the date and time so each scan has a unique file.
 def save_results(start_port, end_port):
     timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     filename = f"scan_results_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.txt"
@@ -183,6 +204,10 @@ def save_results(start_port, end_port):
 
     print(f"\n{Fore.YELLOW}Results saved to {filename}{Style.RESET_ALL}")
 
+# Reads a list of target IP addresses or hostnames from a text file.
+# Each line in the file should contain one target.
+# Strips whitespace and blank lines automatically.
+# Returns a list of targets, or an empty list if the file is not found.
 def load_targets(filename):
     # Open the targets file and read each line as a target
     # strip() removes any extra whitespace or newlines from each line
@@ -195,7 +220,6 @@ def load_targets(filename):
         return []
 
 # Main program starts here ---
-# Ask the user to type in the target (IP address or hostname like "localhost")
 targets = load_targets("targets.txt")
 
 if not targets:
