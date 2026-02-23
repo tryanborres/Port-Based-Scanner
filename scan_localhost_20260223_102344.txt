@@ -1,0 +1,9 @@
+Port Scan Results
+=================
+Target:     localhost
+Port Range: 1 - 500
+Scanned At: 2026-02-23 10:23:44
+=================
+
+Port 135: OPEN
+Port 445: OPEN

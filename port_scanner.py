@@ -6,6 +6,15 @@ open_ports = [] # This list will store the open ports we find
 
 lock = threading.Lock() # A lock to prevent multiple threads from writing to the open_ports list at the same time
 
+def get_service(port):
+    # Try to find the service name for this port using Python's built in lookup
+    # If it can't find one it returns "Unknown"
+    try:
+        service = socket.getservbyport(port)
+        return service
+    except:
+        return "Unknown"
+
 # Checks if a single port is open on the target host
 def scan_port(host, port):
     try:
@@ -15,9 +24,11 @@ def scan_port(host, port):
         sock.close()
 
         if result == 0:
-            with lock: # Lock the list before writing to it so threads don't clash
-                open_ports.append(port)
-                print(f"Port {port}: OPEN")
+            # Look up the service name when we find an open port
+            service = get_service(port)
+            with lock: # Use the lock to safely add the open port to our list without conflicts between threads
+                open_ports.append((port, service))  # store port and service together as a pair
+                print(f"Port {port}: OPEN  -->  {service.upper()}")
 
     except socket.error:
         pass # Skips port that errors out
@@ -40,8 +51,8 @@ def save_results(host, start_port, end_port):
         f.write(f"=================\n\n")
         
         if open_ports:
-            for port in sorted(open_ports):
-                f.write(f"Port {port}: OPEN\n")
+            for port, service in sorted(open_ports):  # unpack each port/service pair
+                f.write(f"Port {port}: OPEN  -->  {service.upper()}\n")
         else:
             f.write("No open ports found.\n")
     
@@ -61,7 +72,13 @@ def scan(host, start_port, end_port):
     for thread in threads: 
         thread.join()
 
-    print(f"\nScan complete. Open ports: {sorted(open_ports)}")
+    print(f"\nScan complete!")
+    print(f"\n{'Port':<10} {'Service'}")
+    print(f"{'-'*20}")
+
+    # Print a clean table of results sorted by port number
+    for port, service in sorted(open_ports):
+        print(f"{port:<10} {service.upper()}")
 
      # Ask the user if they want to save the results
     save = input("\nSave results to file? (y/n): ")
