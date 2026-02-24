@@ -1,0 +1,14 @@
+Port Scan Results
+=================
+Scanned At:  2026-02-24 14:44:23
+Port Range:  1 - 500
+=================
+
+
+Target: localhost
+OS Guess: Windows (TTL=128)
+----------------------------------------
+Port 135: OPEN  -->  EPMAP
+  CVE: CVE-2003-0605: The RPC DCOM interface in Windows 2000 SP3 and SP4 allows remote attackers to cause a denial of service (crash), and local attackers to use the DoS to hijack the epmapper pipe to gain privileges, via certain messages to the __RemoteGetClassObject interface that cause a NULL pointer to be passed to the PerformScmStage function.
+Port 445: OPEN  -->  MICROSOFT-DS
+  CVE: CVE-2002-0597: LANMAN service on Microsoft Windows 2000 allows remote attackers to cause a denial of service (CPU/memory exhaustion) via a stream of malformed data to microsoft-ds port 445.

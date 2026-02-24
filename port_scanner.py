@@ -5,6 +5,7 @@ import datetime # used to print the time when the scan starts and ends
 import subprocess
 import re
 import requests
+import argparse
 from colorama import init, Fore, Style
 
 init() # Initialize colorama - required for colors to work on Windows
@@ -179,7 +180,7 @@ def scan(host, start_port, end_port):
 # Saves all scan results to a timestamped text file.
 # Includes the target, OS guess, open ports, services, and CVEs for each host.
 # The filename includes the date and time so each scan has a unique file.
-def save_results(start_port, end_port):
+def save_results(filename, start_port, end_port):
     timestamp = datetime.datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     filename = f"scan_results_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.txt"
 
@@ -218,21 +219,89 @@ def load_targets(filename):
     except FileNotFoundError:
         print(f"{Fore.RED}Error: {filename} not found!{Style.RESET_ALL}")
         return []
+ 
+# Parses a port range string like '1-500' into a start and end port number.
+# Splits the string on the dash character and converts both parts to integers.
+# Returns a tuple of (start_port, end_port).
+def parse_ports(port_string):
+    try:
+        start, end = port_string.split("-")
+        return int(start), int(end)
+    except:
+        print(f"{Fore.RED}Invalid port range. Use format: 1-500{Style.RESET_ALL}")
+        exit()
+
+# Sets up the CLI argument parser using Python's built in argparse library.
+# Defines the following arguments:
+# --target  : single target IP or hostname
+# --file    : text file containing list of targets
+# --ports   : port range in format start-end (default: 1-1024)
+# --output  : filename to save results to (optional)
+# At least one of --target or --file must be provided.
+def setup_argparse():
+    # Create the argument parser with a description shown in the help menu
+    parser = argparse.ArgumentParser(
+        description="Python Port Scanner - Multithreaded scanner with CVE lookup and OS fingerprinting"
+    )
+
+    # --target lets the user specify a single target directly
+    parser.add_argument(
+        "--target",
+        help="Single target IP or hostname (e.g. --target 192.168.1.1)"
+    )
+
+    # --file lets the user specify a text file with multiple targets
+    parser.add_argument(
+        "--file",
+        help="Text file containing list of targets (e.g. --file targets.txt)"
+    )
+
+    # --ports lets the user specify a port range, defaults to 1-1024
+    parser.add_argument(
+        "--ports",
+        default="1-1024",
+        help="Port range to scan in format start-end (default: 1-1024)"
+    )
+
+    # --output lets the user specify a filename to save results to
+    parser.add_argument(
+        "--output",
+        help="Filename to save results to (e.g. --output results.txt)"
+    )
+
+    return parser.parse_args()
+
 
 # Main program starts here ---
-targets = load_targets("targets.txt")
+args = setup_argparse()
+
+# Build the list of targets from --target or --file
+targets = []
+
+if args.target:
+    targets.append(args.target)
+
+if args.file:
+    targets.extend(load_targets(args.file))
 
 if not targets:
-    print("No targets found. Please add IPs to targets.txt")
+    print(f"{Fore.RED}Error: please provide a target using --target or --file{Style.RESET_ALL}")
+    exit()
+
+# Parse the port range
+start, end = parse_ports(args.ports)
+
+print(f"{Fore.CYAN}Loaded {len(targets)} target(s): {', '.join(targets)}{Style.RESET_ALL}")
+
+# Scan each target
+for target in targets:
+    scan(target, start, end)
+
+# Save results if --output was provided, otherwise ask the user
+if args.output:
+    save_results(args.output, start, end)
 else:
-    print(f"{Fore.CYAN}Loaded {len(targets)} target(s): {', '.join(targets)}{Style.RESET_ALL}")
-
-    start = int(input("Enter start port: "))
-    end = int(input("Enter end port: "))
-
-    for target in targets:
-        scan(target, start, end)
-
     save = input("\nSave results to file? (y/n): ")
     if save.lower() == "y":
-        save_results(start, end)
+        filename = f"scan_results_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.txt"
+        save_results(filename, start, end)
